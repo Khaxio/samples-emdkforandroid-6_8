@@ -10,26 +10,31 @@ import com.symbol.emdk.EMDKResults;
 import com.symbol.emdk.ProfileConfig;
 import com.symbol.emdk.ProfileManager;
 import com.symbol.emdk.ProfileConfig.ENABLED_STATE;
+
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.app.Activity;
+import android.util.Log;
 import android.view.Menu;
 import android.view.View;
 import android.view.View.OnClickListener;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.Spinner;
 import android.widget.TextView;
+import android.widget.Toast;
 
-public class MainActivity extends Activity implements EMDKListener {
+import java.util.ArrayList;
+
+public class MainActivity extends Activity {
 
     // Assign the profile name used in EMDKConfig.xml
     private String profileName = "DataCaptureProfile-1";
-
-    // Declare a variable to store ProfileManager object
-    private ProfileManager profileManager = null;
-
-    // Declare a variable to store EMDKManager object
-    private EMDKManager emdkManager = null;
 
     TextView statusTextView = null;
     CheckBox checkBoxCode128 = null;
@@ -55,15 +60,8 @@ public class MainActivity extends Activity implements EMDKListener {
         // Set listener to the button
         addSetButtonListener();
 
-        // The EMDKManager object will be created and returned in the callback.
-        EMDKResults results = EMDKManager.getEMDKManager(getApplicationContext(), this);
-
-        // Check the return status of processProfile
-        if(results.statusCode == EMDKResults.STATUS_CODE.SUCCESS) {
-            // EMDKManager object creation success
-        }else {
-            // EMDKManager object creation failed
-        }
+        //  Set initial profile
+        modifyProfile_XMLString();
     }
 
     @Override
@@ -77,44 +75,22 @@ public class MainActivity extends Activity implements EMDKListener {
     protected void onDestroy() {
 
         super.onDestroy();
-
-        // Clean up the objects created by EMDK manager
-        if (profileManager != null)
-            profileManager = null;
-
-        if (emdkManager != null) {
-            emdkManager.release();
-            emdkManager = null;
-        }
     }
 
     @Override
-    public void onClosed() {
-
-        // This callback will be issued when the EMDK closes unexpectedly.
-        if (emdkManager != null) {
-            emdkManager.release();
-            emdkManager = null;
-        }
-
-        statusTextView.setText("Status: " + "EMDK closed unexpectedly! Please close and restart the application.");
+    protected void onResume() {
+        super.onResume();
+        IntentFilter filter = new IntentFilter();
+        filter.addAction("com.symbol.datawedge.api.RESULT_ACTION");
+        filter.addCategory(Intent.CATEGORY_DEFAULT);
+        registerReceiver(myBroadcastReceiver, filter);
     }
 
     @Override
-    public void onOpened(EMDKManager emdkManager) {
-
-        // This callback will be issued when the EMDK is ready to use.
-        statusTextView.setText("EMDK open success. Setting the initial profile...");
-
-        this.emdkManager = emdkManager;
-
-        // Get the ProfileManager object to process the profiles
-        profileManager = (ProfileManager) emdkManager.getInstance(EMDKManager.FEATURE_TYPE.PROFILE);
-
-        // Initially set the original profile in Config xml. No extra data.
-        new ProcessProfileAsyncTask().execute(new String[1]);
+    protected void onPause() {
+        super.onPause();
+        unregisterReceiver(myBroadcastReceiver);
     }
-
 
     private void addSetButtonListener()
     {
@@ -124,7 +100,6 @@ public class MainActivity extends Activity implements EMDKListener {
             @Override
             public void onClick(View v) {
 
-                // Call modifyProfile_XMLString() to modify existing profile using XML String.
                 modifyProfile_XMLString();
             }
         });
@@ -134,57 +109,103 @@ public class MainActivity extends Activity implements EMDKListener {
 	{
 		statusTextView.setText("");
 
-		// Prepare XML to modify the existing profile
-		String[] modifyData = new String[1];
-		modifyData[0]=
-				"<?xml version=\"1.0\" encoding=\"utf-8\"?>" +
-				"<characteristic type=\"Profile\">" +
-			        "<characteristic type=\"Barcode\" version=\"6.0\">" +
-			            "<characteristic type=\"Decoders\">" +
-			                "<parm name=\"decoder_code128\" value=\"" + String.valueOf(checkBoxCode128.isChecked()).toLowerCase() + "\"/>" +
-			                "<parm name=\"decoder_code39\" value=\"" + String.valueOf(checkBoxCode39.isChecked()).toLowerCase() + "\"/>" +
-			                "<parm name=\"decoder_ean8\" value=\"" + String.valueOf(checkBoxEAN8.isChecked()).toLowerCase() + "\"/>" +
-			                "<parm name=\"decoder_ean13\" value=\"" + String.valueOf(checkBoxEAN13.isChecked()).toLowerCase() + "\"/>" +
-			                "<parm name=\"decoder_upca\" value=\"" + String.valueOf(checkBoxUPCA.isChecked()).toLowerCase() + "\"/>" +
-			                "<parm name=\"decoder_upce0\" value=\"" + String.valueOf(checkBoxUPCE0.isChecked()).toLowerCase() + "\"/>" +
-			            "</characteristic>" +
-			        "</characteristic>"+
-				"</characteristic>";
+		//  Tested and working with DataWedge 6.6.  Unlikely to work with earlier versions.
 
-        // Modify the original config xml profile with UI data
-		new ProcessProfileAsyncTask().execute(modifyData[0]);
+        //  1. Create the profile if it does not exist
+        Bundle profileConfig = new Bundle();
+        profileConfig.putString("PROFILE_NAME", profileName);
+        profileConfig.putString("PROFILE_ENABLED", "true");
+        profileConfig.putString("CONFIG_MODE", "CREATE_IF_NOT_EXIST");
+        Bundle appConfig = new Bundle();
+        appConfig.putString("PACKAGE_NAME", getPackageName());
+        appConfig.putStringArray("ACTIVITY_LIST", new String[]{getPackageName() + ".MainActivity"});
+        profileConfig.putParcelableArray("APP_LIST", new Bundle[]{appConfig});
+
+        Intent dwCreateIntent = new Intent();
+        dwCreateIntent.setAction("com.symbol.datawedge.api.ACTION");
+        dwCreateIntent.putExtra("com.symbol.datawedge.api.SET_CONFIG", profileConfig);
+        dwCreateIntent.putExtra("SEND_RESULT", "true");  //  Get feedback from DataWedge
+        sendBroadcast(dwCreateIntent);
+
+        //  2. Set the Barcode Input plugin
+
+        profileConfig.remove("APP_LIST");
+        profileConfig.remove("CONFIG_MODE");
+        profileConfig.putString("CONFIG_MODE", "UPDATE");
+        ArrayList<Bundle> barcodeConfigArrayList = new ArrayList<Bundle>();
+        Bundle barcodeConfig = new Bundle();
+        barcodeConfig.putString("PLUGIN_NAME", "BARCODE");
+        barcodeConfig.putString("RESET_CONFIG", "true");
+        Bundle barcodeProps = new Bundle();
+        //  Can either use scanner_selection here or scanner_selection_by_identifier
+        barcodeProps.putString("scanner_selection", "auto");   //  Requires DW 6.5
+        //barcodeProps.putString("scanner_selection_by_identifier", "INTERNAL_IMAGER");   //  Requires DW 6.5
+        barcodeProps.putString("scanner_input_enabled", "true");
+        barcodeProps.putString("decoder_code128", String.valueOf(checkBoxCode128.isChecked()).toLowerCase());
+        barcodeProps.putString("decoder_code39", String.valueOf(checkBoxCode39.isChecked()).toLowerCase());
+        barcodeProps.putString("decoder_ean8", String.valueOf(checkBoxEAN8.isChecked()).toLowerCase());
+        barcodeProps.putString("decoder_ean13", String.valueOf(checkBoxEAN13.isChecked()).toLowerCase());
+        barcodeProps.putString("decoder_upca", String.valueOf(checkBoxUPCA.isChecked()).toLowerCase());
+        barcodeProps.putString("decoder_upce0", String.valueOf(checkBoxUPCE0.isChecked()).toLowerCase());
+        barcodeConfig.putBundle("PARAM_LIST", barcodeProps);
+        barcodeConfigArrayList.add(barcodeConfig);
+        //  todo - PLUGIN_CONFIG now REQUIRES an ArrayList
+        profileConfig.putParcelableArrayList("PLUGIN_CONFIG", barcodeConfigArrayList);
+
+        Intent dwInputIntent = new Intent();
+        dwInputIntent.setAction("com.symbol.datawedge.api.ACTION");
+        dwInputIntent.putExtra("com.symbol.datawedge.api.SET_CONFIG", profileConfig);
+        dwInputIntent.putExtra("SEND_RESULT", "true");  //  Get feedback from DataWedge
+        sendBroadcast(dwInputIntent);
+
+        //  3. Set the Output plugin properties
+
+        profileConfig.remove("PLUGIN_CONFIG");
+        Bundle keystrokeConfig = new Bundle();
+        keystrokeConfig.putString("PLUGIN_NAME", "KEYSTROKE");
+        keystrokeConfig.putString("RESET_CONFIG", "true");
+        Bundle keystrokeProps = new Bundle();
+        keystrokeProps.putString("keystroke_output_enabled", "true");
+        keystrokeConfig.putBundle("PARAM_LIST", keystrokeProps);
+        ArrayList<Bundle> keyStrokeConfigArrayList = new ArrayList<>();
+        profileConfig.putParcelableArrayList("PLUGIN_CONFIG", keyStrokeConfigArrayList);
+
+        Intent dwOutputIntent = new Intent();
+        dwOutputIntent.setAction("com.symbol.datawedge.api.ACTION");
+        dwOutputIntent.putExtra("com.symbol.datawedge.api.SET_CONFIG", profileConfig);
+        dwOutputIntent.putExtra("SEND_RESULT", "true");  //  Get feedback from DataWedge
+        sendBroadcast(dwOutputIntent);
+
 	}
 
-  	private class ProcessProfileAsyncTask extends AsyncTask<String, Void, EMDKResults> {
-
-		@Override
-		protected EMDKResults doInBackground(String... params) {
-
-			// Call processPrfoile with profile name, SET flag and config data to update the profile
-			EMDKResults results = profileManager.processProfile(profileName, ProfileManager.PROFILE_FLAG.SET, params);
-
-			return results;
-		}
-
-		@Override
-		protected void onPostExecute(EMDKResults results) {
-
-			super.onPostExecute(results);
-
-			String resultString;
-
-			//Check the return status of processProfile
-			if(results.statusCode == EMDKResults.STATUS_CODE.SUCCESS) {
-
-				resultString = "Profile update success.";
-
-			}else {
-
-				resultString = "Profile update failed.";
-			}
-
-			statusTextView.setText(resultString);
-		}
-	}
+    private BroadcastReceiver myBroadcastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (action.equals("com.symbol.datawedge.api.RESULT_ACTION")) {
+                //  Process any result codes
+                if (intent.hasExtra("RESULT")) {
+                    if (intent.hasExtra("COMMAND")) {
+                        String result = intent.getStringExtra("RESULT");
+                        String command = intent.getStringExtra("COMMAND");
+                        String info = "";
+                        if (intent.hasExtra("RESULT_INFO")) {
+                            Bundle result_info = intent.getBundleExtra("RESULT_INFO");
+                            String result_code = result_info.getString("RESULT_CODE");
+                            if (result_code != null)
+                            {
+                                if (result_code.equalsIgnoreCase("APP_ALREADY_ASSOCIATED"))
+                                    return;  //  Otherwise the UI gets confusing
+                                info = " - " + result_code;
+                            }
+                        }
+                        statusTextView.setText(command + ": " + result + info);
+                    }
+                } else {
+                    statusTextView.setText("No Result associated with this intent");
+                }
+            }
+        }
+    };
 }
 
