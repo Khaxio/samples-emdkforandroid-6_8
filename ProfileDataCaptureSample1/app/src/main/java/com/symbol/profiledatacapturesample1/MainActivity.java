@@ -15,21 +15,14 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.os.AsyncTask;
 import android.os.Bundle;
 import android.app.Activity;
-import android.util.Log;
 import android.view.Menu;
 import android.view.View;
 import android.view.View.OnClickListener;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
-import android.widget.Spinner;
 import android.widget.TextView;
-import android.widget.Toast;
-
-import java.util.ArrayList;
 
 public class MainActivity extends Activity {
 
@@ -128,17 +121,15 @@ public class MainActivity extends Activity {
         sendBroadcast(dwCreateIntent);
 
         //  2. Set the Barcode Input plugin
-
         profileConfig.remove("APP_LIST");
         profileConfig.remove("CONFIG_MODE");
         profileConfig.putString("CONFIG_MODE", "UPDATE");
-        ArrayList<Bundle> barcodeConfigArrayList = new ArrayList<Bundle>();
         Bundle barcodeConfig = new Bundle();
         barcodeConfig.putString("PLUGIN_NAME", "BARCODE");
         barcodeConfig.putString("RESET_CONFIG", "true");
         Bundle barcodeProps = new Bundle();
         //  Can either use scanner_selection here or scanner_selection_by_identifier
-        barcodeProps.putString("scanner_selection", "auto");   //  Requires DW 6.5
+        barcodeProps.putString("scanner_selection", "auto");   //  Requires DW 6.4
         //barcodeProps.putString("scanner_selection_by_identifier", "INTERNAL_IMAGER");   //  Requires DW 6.5
         barcodeProps.putString("scanner_input_enabled", "true");
         barcodeProps.putString("decoder_code128", String.valueOf(checkBoxCode128.isChecked()).toLowerCase());
@@ -148,9 +139,9 @@ public class MainActivity extends Activity {
         barcodeProps.putString("decoder_upca", String.valueOf(checkBoxUPCA.isChecked()).toLowerCase());
         barcodeProps.putString("decoder_upce0", String.valueOf(checkBoxUPCE0.isChecked()).toLowerCase());
         barcodeConfig.putBundle("PARAM_LIST", barcodeProps);
-        barcodeConfigArrayList.add(barcodeConfig);
-        //  todo - PLUGIN_CONFIG now REQUIRES an ArrayList
-        profileConfig.putParcelableArrayList("PLUGIN_CONFIG", barcodeConfigArrayList);
+        //  Note: DW 6.6 supports the ability to define multiple plugin configs in the same intent but we
+        //  separate it into multiple calls to be compatible with earlier versions, from 6.4
+        profileConfig.putBundle("PLUGIN_CONFIG", barcodeConfig);
 
         Intent dwInputIntent = new Intent();
         dwInputIntent.setAction("com.symbol.datawedge.api.ACTION");
@@ -159,7 +150,6 @@ public class MainActivity extends Activity {
         sendBroadcast(dwInputIntent);
 
         //  3. Set the Output plugin properties
-
         profileConfig.remove("PLUGIN_CONFIG");
         Bundle keystrokeConfig = new Bundle();
         keystrokeConfig.putString("PLUGIN_NAME", "KEYSTROKE");
@@ -167,15 +157,13 @@ public class MainActivity extends Activity {
         Bundle keystrokeProps = new Bundle();
         keystrokeProps.putString("keystroke_output_enabled", "true");
         keystrokeConfig.putBundle("PARAM_LIST", keystrokeProps);
-        ArrayList<Bundle> keyStrokeConfigArrayList = new ArrayList<>();
-        profileConfig.putParcelableArrayList("PLUGIN_CONFIG", keyStrokeConfigArrayList);
+        profileConfig.putBundle("PLUGIN_CONFIG", keystrokeConfig);
 
         Intent dwOutputIntent = new Intent();
         dwOutputIntent.setAction("com.symbol.datawedge.api.ACTION");
         dwOutputIntent.putExtra("com.symbol.datawedge.api.SET_CONFIG", profileConfig);
         dwOutputIntent.putExtra("SEND_RESULT", "true");  //  Get feedback from DataWedge
         sendBroadcast(dwOutputIntent);
-
 	}
 
     private BroadcastReceiver myBroadcastReceiver = new BroadcastReceiver() {
