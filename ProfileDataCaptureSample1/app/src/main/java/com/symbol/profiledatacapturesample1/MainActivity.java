@@ -4,13 +4,6 @@
 */
 package com.symbol.profiledatacapturesample1;
 
-import com.symbol.emdk.EMDKManager;
-import com.symbol.emdk.EMDKManager.EMDKListener;
-import com.symbol.emdk.EMDKResults;
-import com.symbol.emdk.ProfileConfig;
-import com.symbol.emdk.ProfileManager;
-import com.symbol.emdk.ProfileConfig.ENABLED_STATE;
-
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;

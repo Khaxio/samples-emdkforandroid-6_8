@@ -23,12 +23,3 @@ android {
         }
     }
 }
-
-dependencies {
-    Properties properties = new Properties()
-    properties.load(project.rootProject.file('local.properties').newDataInputStream())
-    def sdkDir = properties.getProperty('sdk.dir')
-    compileOnly fileTree(include: ['com.symbol.emdk.jar'], dir: sdkDir+'/add-ons/addon-symbol_emdk-symbol-23/libs/')
-
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
-}
